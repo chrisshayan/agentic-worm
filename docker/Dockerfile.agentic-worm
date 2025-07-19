@@ -1,0 +1,91 @@
+# Multi-stage build for Agentic Worm System
+FROM python:3.11-slim as base
+
+# Set environment variables
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app/src \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    curl \
+    git \
+    libgl1-mesa-glx \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
+    libgomp1 \
+    wget \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create app directory
+WORKDIR /app
+
+# Copy requirements and install Python dependencies
+COPY pyproject.toml ./
+RUN pip install --no-cache-dir -e .
+
+# Development stage
+FROM base as development
+
+# Install development dependencies
+RUN pip install --no-cache-dir \
+    jupyter \
+    ipython \
+    pytest \
+    pytest-asyncio \
+    black \
+    isort \
+    flake8 \
+    mypy
+
+# Install additional development tools
+RUN pip install --no-cache-dir \
+    rich \
+    typer \
+    fastapi \
+    uvicorn \
+    websockets \
+    streamlit
+
+# Copy source code
+COPY src/ ./src/
+COPY configs/ ./configs/
+
+# Create necessary directories
+RUN mkdir -p /app/data /app/logs /app/outputs
+
+# Expose ports for development
+EXPOSE 8000 8001
+
+# Development command
+CMD ["python", "-m", "agentic_worm.cli", "run", "--development"]
+
+# Production stage
+FROM base as production
+
+# Copy only necessary files
+COPY src/ ./src/
+COPY configs/ ./configs/
+
+# Create directories
+RUN mkdir -p /app/data /app/logs /app/outputs && \
+    groupadd -r agentic && useradd -r -g agentic agentic && \
+    chown -R agentic:agentic /app
+
+# Switch to non-root user
+USER agentic
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+# Expose ports
+EXPOSE 8000 8001
+
+# Production command
+CMD ["python", "-m", "agentic_worm.cli", "run", "--production"] 

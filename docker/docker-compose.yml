@@ -1,0 +1,116 @@
+services:
+  # OpenWorm Simulation Stack
+  openworm-base:
+    image: openworm/openworm:0.9.6
+    platform: linux/amd64  # Explicit platform for ARM64/Apple Silicon compatibility
+    container_name: agentic-worm-openworm
+    ports:
+      - "8080:8080"  # Geppetto web interface
+      - "9000:9000"  # API endpoint
+    volumes:
+      - ./volumes/openworm_data:/opt/openworm/data
+      - ./volumes/simulations:/opt/openworm/simulations
+    environment:
+      - DISPLAY=${DISPLAY:-:0}
+      - JAVA_OPTS=-Xmx2g  # Reduced memory for ARM64 emulation
+      - GEPPETTO_SIMULATION_MODE=c302
+    networks:
+      - agentic-worm-net
+    restart: unless-stopped
+
+  # Agentic Control Layer
+  agentic-worm:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.agentic-worm
+    container_name: agentic-worm-agent
+    depends_on:
+      - openworm-base
+      - redis
+    ports:
+      - "8000:8000"  # FastAPI dashboard
+      - "8001:8001"  # WebSocket for real-time updates
+    volumes:
+      - ../src:/app/src
+      - ../configs:/app/configs
+      - ../data:/app/data
+      - ./volumes/logs:/app/logs
+    environment:
+      - PYTHONPATH=/app/src
+      - OPENWORM_HOST=openworm-base
+      - OPENWORM_PORT=9000
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - LOG_LEVEL=INFO
+    networks:
+      - agentic-worm-net
+    restart: unless-stopped
+
+  # Redis for state management and caching
+  redis:
+    image: redis:7-alpine
+    container_name: agentic-worm-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./volumes/redis_data:/data
+    command: redis-server --appendonly yes
+    networks:
+      - agentic-worm-net
+    restart: unless-stopped
+
+  # Real-time Dashboard
+  dashboard:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.dashboard
+    container_name: agentic-worm-dashboard
+    depends_on:
+      - agentic-worm
+      - redis
+    ports:
+      - "3000:3000"  # React dashboard
+    volumes:
+      - ../src/agentic_worm/dashboard:/app/src
+    environment:
+      - REACT_APP_API_BASE_URL=http://localhost:8000
+      - REACT_APP_WS_URL=ws://localhost:8001
+    networks:
+      - agentic-worm-net
+    restart: unless-stopped
+
+  # Jupyter Lab for analysis and experimentation
+  jupyter:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.jupyter
+    container_name: agentic-worm-jupyter
+    depends_on:
+      - agentic-worm
+    ports:
+      - "8888:8888"
+    volumes:
+      - ../notebooks:/home/jovyan/work
+      - ../data:/home/jovyan/data
+      - ../src:/home/jovyan/src
+    environment:
+      - JUPYTER_ENABLE_LAB=yes
+      - JUPYTER_TOKEN=agentic-worm
+    networks:
+      - agentic-worm-net
+    restart: unless-stopped
+
+networks:
+  agentic-worm-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+volumes:
+  openworm_data:
+    driver: local
+  redis_data:
+    driver: local
+  simulation_data:
+    driver: local 

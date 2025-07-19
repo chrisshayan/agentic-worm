@@ -1,0 +1,181 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agentic-worm"
+version = "0.1.0"
+description = "AI-driven autonomous digital C. elegans with OpenWorm integration"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "Agentic Worm Team", email = "team@agentic-worm.org"}
+]
+maintainers = [
+    {name = "Agentic Worm Team", email = "team@agentic-worm.org"}
+]
+keywords = ["ai", "biology", "simulation", "openworm", "langgraph", "autonomous-agents"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+]
+requires-python = ">=3.8"
+dependencies = [
+    # Core orchestration
+    "langgraph>=0.1.0",
+    "langchain>=0.1.0",
+    "langchain-community>=0.0.1",
+    
+    # AI/ML frameworks
+    "torch>=2.0.0",
+    "torchvision>=0.15.0",
+    "tensorflow>=2.13.0",
+    "stable-baselines3>=2.0.0",
+    "gymnasium>=0.28.0",
+    
+    # Scientific computing
+    "numpy>=1.24.0",
+    "scipy>=1.10.0",
+    "pandas>=2.0.0",
+    "matplotlib>=3.7.0",
+    "seaborn>=0.12.0",
+    "scikit-learn>=1.3.0",
+    
+    # Async and web
+    "asyncio-mqtt>=0.13.0",
+    "aiohttp>=3.8.0",
+    "fastapi>=0.100.0",
+    "uvicorn>=0.23.0",
+    "websockets>=11.0",
+    
+    # Data storage
+    "sqlalchemy>=2.0.0",
+    "sqlite3",
+    "redis>=4.6.0",
+    
+    # Configuration and logging
+    "pydantic>=2.0.0",
+    "python-dotenv>=1.0.0",
+    "loguru>=0.7.0",
+    "rich>=13.0.0",
+    
+    # Development utilities
+    "typer>=0.9.0",
+    "click>=8.1.0",
+    "tqdm>=4.65.0",
+    
+    # Testing and quality
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.1.0",
+    "black>=23.0.0",
+    "isort>=5.12.0",
+    "flake8>=6.0.0",
+    "mypy>=1.5.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "jupyter>=1.0.0",
+    "ipykernel>=6.25.0",
+    "pre-commit>=3.3.0",
+    "sphinx>=7.1.0",
+    "sphinx-rtd-theme>=1.3.0",
+]
+monitoring = [
+    "mlflow>=2.5.0",
+    "wandb>=0.15.0",
+    "tensorboard>=2.13.0",
+]
+graph = [
+    "neo4j>=5.11.0",
+    "networkx>=3.1.0",
+    "igraph>=0.10.0",
+]
+visualization = [
+    "plotly>=5.15.0",
+    "dash>=2.12.0",
+    "streamlit>=1.25.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/chrisshayan/agentic-worm"
+Repository = "https://github.com/chrisshayan/agentic-worm.git"
+Documentation = "https://agentic-worm.readthedocs.io/"
+"Bug Tracker" = "https://github.com/chrisshayan/agentic-worm/issues"
+
+[project.scripts]
+agentic-worm = "agentic_worm.cli:main"
+worm-train = "agentic_worm.training.cli:main"
+worm-simulate = "agentic_worm.simulation.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-dir]
+"" = "src"
+
+[tool.black]
+line-length = 88
+target-version = ['py38', 'py39', 'py310', 'py311']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | build
+  | dist
+)/
+'''
+
+[tool.isort]
+profile = "black"
+multi_line_output = 3
+line_length = 88
+known_first_party = ["agentic_worm"]
+
+[tool.mypy]
+python_version = "3.8"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+strict_equality = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "--strict-markers",
+    "--strict-config",
+    "--cov=agentic_worm",
+    "--cov-report=term-missing",
+    "--cov-report=html",
+    "--cov-report=xml",
+]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests",
+    "unit: marks tests as unit tests",
+] 
