@@ -297,12 +297,12 @@ def create_basic_visualizer(console_output: bool = True) -> RealtimeVisualizer:
     visualizer.set_console_output(console_output)
     return visualizer
 
-def create_dashboard_visualizer(port: int = 8888) -> tuple[RealtimeVisualizer, Any]:
+def create_dashboard_visualizer(port: int = 8000, host: str = "0.0.0.0") -> tuple[RealtimeVisualizer, Any]:
     """Create a visualizer with web dashboard."""
     from .dashboard import DashboardServer
     
     visualizer = RealtimeVisualizer()
-    dashboard = DashboardServer(port=port)
+    dashboard = DashboardServer(port=port, host=host)
     
     visualizer.connect_dashboard(dashboard)
     

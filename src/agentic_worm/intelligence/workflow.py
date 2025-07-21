@@ -26,6 +26,7 @@ except ImportError:
     START = "START"
 
 from ..core.state import WormState
+from ..memory import WormMemoryManager, MemoryType
 
 logger = logging.getLogger(__name__)
 
@@ -92,6 +93,58 @@ class AgenticWorkflow:
         self.decision_count = 0
         self.successful_actions = 0
         self.learning_rate = 0.01 if enable_learning else 0.0
+        
+        # Initialize memory manager for persistent learning
+        try:
+            import os
+            arango_host = os.environ.get('ARANGO_HOST', 'localhost')
+            arango_port = int(os.environ.get('ARANGO_PORT', '8529'))
+            arango_database = os.environ.get('ARANGO_DATABASE', 'agentic_worm_memory')
+            arango_username = os.environ.get('ARANGO_USERNAME', '')
+            arango_password = os.environ.get('ARANGO_PASSWORD', '')
+            
+            # For no-auth ArangoDB, use empty credentials
+            if not arango_username:
+                arango_username = None
+                arango_password = None
+            
+            logger.info(f"🔌 Connecting to ArangoDB at {arango_host}:{arango_port}")
+            logger.info(f"🗄️ Database: {arango_database}")
+            logger.info(f"👤 Auth mode: {'No authentication' if not arango_username else 'With authentication'}")
+            
+            self.memory_manager = WormMemoryManager(
+                arango_config={
+                    "host": arango_host,
+                    "port": arango_port,
+                    "database_name": arango_database,
+                    "username": arango_username,
+                    "password": arango_password
+                },
+                enable_consolidation=True,
+                consolidation_interval_hours=24
+            )
+            
+            # Test the memory manager initialization
+            logger.info("🧪 Testing memory manager initialization...")
+            initialization_success = await self.memory_manager.initialize()
+            
+            if initialization_success:
+                logger.info("✅ Memory manager initialized successfully")
+                
+                # Test basic operations
+                test_success = await self.memory_manager.test_basic_operations("test_worm_001")
+                if test_success:
+                    logger.info("🎉 Memory system fully operational!")
+                else:
+                    logger.warning("⚠️ Memory system initialized but basic operations failed")
+            else:
+                logger.error("❌ Memory manager initialization failed")
+                self.memory_manager = None
+                
+        except Exception as e:
+            logger.error(f"❌ Memory manager initialization failed: {e}")
+            logger.error(f"💡 This will cause memory system to show 'Initializing...' status")
+            self.memory_manager = None
         
         # Initialize the graph
         if LANGGRAPH_AVAILABLE:
@@ -283,7 +336,7 @@ class AgenticWorkflow:
             return state
     
     async def _cognition_node(self, state: LangGraphWormState) -> LangGraphWormState:
-        """LangGraph node for cognitive processing."""
+        """LangGraph node for memory-enabled cognitive processing."""
         try:
             current_time = datetime.now().timestamp()
             
@@ -291,25 +344,129 @@ class AgenticWorkflow:
             goal = state["decision_context"].get("current_goal", "explore")
             fitness = state["fitness_score"]
             energy = state["energy_level"]
+            current_location = state["position"]
+            worm_id = state["worm_id"]
             
-            # Cognitive assessment
-            if goal == "find_food" and fitness < 0.5:
-                cognitive_assessment = "food_seeking_urgent"
-                strategy = "aggressive_chemotaxis"
-            elif goal == "explore" and energy > 0.7:
-                cognitive_assessment = "exploration_optimal"
-                strategy = "systematic_mapping"
+            # 🧠 Memory-Enhanced Cognition
+            
+            # 1. Retrieve relevant memories for current context (if memory available)
+            relevant_memories = {}
+            spatial_context = {"is_familiar": False, "average_success_rate": 0.5, "region_type": "unknown"}
+            best_strategies = []
+            
+            if self.memory_manager:
+                try:
+                    relevant_memories = await self.memory_manager.retrieve_relevant_memories(
+                        worm_id=worm_id,
+                        current_location=current_location,
+                        current_goal=goal,
+                        context=f"fitness={fitness:.2f} energy={energy:.2f}",
+                        memory_types=[MemoryType.EPISODIC, MemoryType.SPATIAL, MemoryType.PROCEDURAL],
+                        limit=5
+                    )
+                    
+                    # 2. Get spatial context for current location
+                    spatial_context = await self.memory_manager.get_spatial_context(
+                        worm_id=worm_id,
+                        location=current_location,
+                        radius=50.0
+                    )
+                    
+                    # 3. Get best strategies for current goal
+                    best_strategies = await self.memory_manager.get_best_strategies_for_goal(
+                        worm_id=worm_id,
+                        goal=goal,
+                        context={"fitness": fitness, "energy": energy, "location": current_location},
+                        limit=3
+                    )
+                except Exception as e:
+                    logger.warning(f"Memory retrieval failed: {e}")
             else:
-                cognitive_assessment = "standard_behavior"
-                strategy = "balanced_approach"
+                logger.debug("Memory manager not available, using fallback cognition")
             
-            # Update decision context
+            # 4. Memory-informed cognitive assessment
+            memory_insights = []
+            
+            # Spatial memory insights
+            if spatial_context["is_familiar"]:
+                if spatial_context["average_success_rate"] > 0.7:
+                    memory_insights.append("familiar_successful_area")
+                    cognitive_assessment = "location_optimistic"
+                elif spatial_context["average_success_rate"] < 0.3:
+                    memory_insights.append("familiar_challenging_area")
+                    cognitive_assessment = "location_cautious"
+                else:
+                    cognitive_assessment = "location_neutral"
+            else:
+                memory_insights.append("unknown_territory")
+                cognitive_assessment = "exploration_needed"
+            
+            # Strategy memory insights
+            if best_strategies:
+                top_strategy = best_strategies[0]
+                if top_strategy.success_rate > 0.8:
+                    memory_insights.append("proven_strategy_available")
+                    strategy = top_strategy.name
+                else:
+                    strategy = "adaptive_approach"
+            else:
+                memory_insights.append("no_proven_strategies")
+                strategy = "experimental_approach"
+            
+            # Episodic memory insights
+            recent_experiences = relevant_memories.get("episodic", [])
+            if recent_experiences:
+                recent_outcomes = [exp.get("outcome", "unknown") for exp in recent_experiences]
+                success_rate = recent_outcomes.count("success") / len(recent_outcomes)
+                
+                if success_rate > 0.7:
+                    memory_insights.append("recent_success_pattern")
+                elif success_rate < 0.3:
+                    memory_insights.append("recent_failure_pattern")
+                    
+                # Adjust cognitive assessment based on recent performance
+                if success_rate > 0.8:
+                    cognitive_assessment = f"{cognitive_assessment}_confident"
+                elif success_rate < 0.2:
+                    cognitive_assessment = f"{cognitive_assessment}_adaptive"
+            
+            # 5. Combine baseline assessment with memory insights
+            if goal == "find_food" and fitness < 0.5:
+                if "familiar_successful_area" in memory_insights:
+                    cognitive_assessment = "food_seeking_optimized"
+                    strategy = "memory_guided_search"
+                else:
+                    cognitive_assessment = "food_seeking_urgent"
+                    strategy = "aggressive_chemotaxis"
+            elif goal == "explore" and energy > 0.7:
+                if "unknown_territory" in memory_insights:
+                    cognitive_assessment = "exploration_discovery"
+                    strategy = "systematic_mapping"
+                else:
+                    cognitive_assessment = "exploration_optimization"
+                    strategy = "efficiency_focused"
+            
+            # 6. Update decision context with memory-enhanced information
             state["decision_context"]["cognitive_assessment"] = cognitive_assessment
             state["decision_context"]["behavioral_strategy"] = strategy
+            state["decision_context"]["memory_insights"] = memory_insights
+            state["decision_context"]["spatial_context"] = spatial_context
+            state["decision_context"]["available_strategies"] = len(best_strategies)
+            state["decision_context"]["memory_confidence"] = min(
+                spatial_context.get("average_success_rate", 0.5) + 0.3, 1.0
+            )
             state["decision_context"]["analysis_time"] = current_time
             
+            # 7. Create detailed cognition message
+            memory_summary = f"Spatial: {spatial_context['region_type']} " + \
+                           f"(success: {spatial_context['average_success_rate']:.2f}), " + \
+                           f"Strategies: {len(best_strategies)}, " + \
+                           f"Experiences: {len(recent_experiences)}"
+            
             cognition_msg = AIMessage(
-                content=f"🤔 COGNITION: Assessment={cognitive_assessment}, Strategy={strategy}"
+                content=f"🧠 MEMORY-ENHANCED COGNITION: {cognitive_assessment} | " + \
+                       f"Strategy: {strategy} | Memory: {memory_summary} | " + \
+                       f"Insights: {', '.join(memory_insights)}"
             )
             state["messages"].append(cognition_msg)
             state["current_step"] = "cognition_complete"
@@ -317,7 +474,27 @@ class AgenticWorkflow:
             return state
             
         except Exception as e:
-            state["processing_errors"].append(f"Cognition error: {e}")
+            # Fallback to basic cognition if memory fails
+            state["processing_errors"].append(f"Memory-cognition error: {e}")
+            
+            goal = state["decision_context"].get("current_goal", "explore")
+            if goal == "find_food" and state["fitness_score"] < 0.5:
+                cognitive_assessment = "food_seeking_basic"
+                strategy = "basic_chemotaxis"
+            else:
+                cognitive_assessment = "standard_behavior"
+                strategy = "balanced_approach"
+            
+            state["decision_context"]["cognitive_assessment"] = cognitive_assessment
+            state["decision_context"]["behavioral_strategy"] = strategy
+            state["decision_context"]["memory_insights"] = ["memory_unavailable"]
+            
+            fallback_msg = AIMessage(
+                content=f"🤔 BASIC COGNITION: {cognitive_assessment} | Strategy: {strategy}"
+            )
+            state["messages"].append(fallback_msg)
+            state["current_step"] = "cognition_complete"
+            
             return state
     
     async def _decision_node(self, state: LangGraphWormState) -> LangGraphWormState:
@@ -429,44 +606,216 @@ class AgenticWorkflow:
             return state
     
     async def _learning_node(self, state: LangGraphWormState) -> LangGraphWormState:
-        """LangGraph node for learning and adaptation."""
+        """LangGraph node for memory-enabled learning and experience recording."""
         if not self.enable_learning:
             return state
             
         try:
             current_time = datetime.now().timestamp()
             
-            # Evaluate action success
+            # Evaluate action success and collect experience data
             decision = state["decision_context"].get("current_decision", "")
             confidence = state["decision_context"].get("decision_confidence", 0.5)
             fitness_before = state.get("previous_fitness", state["fitness_score"])
             fitness_after = state["fitness_score"]
+            energy_before = state.get("previous_energy", state["energy_level"])
+            energy_after = state["energy_level"]
             
-            # Simple learning: adjust based on fitness change
+            # Calculate changes
             fitness_change = fitness_after - fitness_before
+            energy_change = energy_after - energy_before
             
-            if fitness_change > 0:
-                # Successful action - reinforce
+            # Get goal and strategy with proper null safety
+            decision_context = state.get("decision_context", {})
+            if decision_context is None:
+                decision_context = {}
+                
+            goal = decision_context.get("current_goal") or "explore_environment"
+            strategy = decision_context.get("behavioral_strategy") or "basic_movement"
+            
+            # Ensure goal and strategy are always strings
+            if not isinstance(goal, str) or not goal.strip():
+                goal = "explore_environment"
+            if not isinstance(strategy, str) or not strategy.strip():
+                strategy = "basic_movement"
+            
+            # Determine outcome
+            if fitness_change > 0.01:
+                outcome = "success"
                 self.successful_actions += 1
                 learning_outcome = "positive_reinforcement"
-            else:
-                # Unsuccessful action - adjust
+            elif fitness_change < -0.01:
+                outcome = "failure"
                 learning_outcome = "negative_feedback"
+            else:
+                outcome = "partial"
+                learning_outcome = "neutral_feedback"
+            
+            # 🧠 Record Experience in Memory (if available)
+            memory_status = "Memory system not available"
+            
+            if self.memory_manager:
+                try:
+                    worm_id = state["worm_id"]
+                    location = state.get("position", {"x": 0.0, "y": 0.0, "z": 0.0})
+                    motor_commands = state.get("motor_commands", {})
+                
+                    actions_taken = [
+                        {
+                            "type": "decision",
+                            "decision": decision,
+                            "confidence": confidence,
+                            "timestamp": current_time
+                        },
+                        {
+                            "type": "motor_action",
+                            "commands": motor_commands,
+                            "strategy": strategy,
+                            "timestamp": current_time
+                        }
+                    ]
+                    
+                    # Fix motor_commands structure for Experience validation
+                    safe_motor_commands = {}
+                    if isinstance(motor_commands, dict):
+                        # Extract muscle activations if they exist
+                        if "muscle_activations" in motor_commands:
+                            muscle_activations = motor_commands["muscle_activations"]
+                            if isinstance(muscle_activations, dict):
+                                safe_motor_commands["dorsal"] = float(muscle_activations.get("dorsal", 0.0))
+                                safe_motor_commands["ventral"] = float(muscle_activations.get("ventral", 0.0))
+                            else:
+                                safe_motor_commands["dorsal"] = 0.0
+                                safe_motor_commands["ventral"] = 0.0
+                        else:
+                            # Use direct values if available
+                            safe_motor_commands["dorsal"] = float(motor_commands.get("dorsal", 0.0))
+                            safe_motor_commands["ventral"] = float(motor_commands.get("ventral", 0.0))
+                        
+                        # Add other motor commands
+                        safe_motor_commands["pharynx_pump"] = float(motor_commands.get("pharynx_pump", 0.0))
+                    else:
+                        # Default values if motor_commands is not a dict
+                        safe_motor_commands = {"dorsal": 0.0, "ventral": 0.0, "pharynx_pump": 0.0}
+                    
+                    # Record the experience in episodic memory
+                    experience_id = await self.memory_manager.record_experience(
+                        worm_id=worm_id,
+                        location=location,
+                        goal=goal,
+                        actions_taken=actions_taken,
+                        motor_commands=safe_motor_commands,
+                        outcome=outcome,
+                        fitness_change=fitness_change,
+                        energy_change=energy_change,
+                        duration=1.0,  # Assume 1 second per cycle
+                        environment_state={
+                            "fitness": fitness_after,
+                            "energy": energy_after,
+                            "confidence": confidence
+                        },
+                        tags=[
+                            str(strategy) if strategy else "basic_movement",
+                            str(outcome) if outcome else "neutral", 
+                            str(goal) if goal else "explore_environment",
+                            f"confidence_{int((confidence or 0.5)*10)/10}"
+                        ]
+                    )
+                    
+                    memory_status = f"Experience {experience_id[:8]} recorded"
+                    
+                    # 🧠 Strategy Learning: Create or update strategies based on successful patterns
+                    if outcome == "success" and confidence > 0.7:
+                        try:
+                            # Create a new strategy if this was particularly successful
+                            strategy_name = f"{goal}_{strategy}_optimized"
+                            strategy_description = f"Successful {strategy} for {goal} (fitness gain: {fitness_change:.3f})"
+                            
+                            trigger_conditions = {
+                                "goal": goal,
+                                "min_fitness": max(0.0, fitness_before - 0.1),
+                                "min_energy": max(0.0, energy_before - 0.1),
+                                "location_type": state["decision_context"].get("spatial_context", {}).get("region_type", "unknown")
+                            }
+                            
+                            action_sequence = [
+                                {"type": "cognitive_assessment", "strategy": strategy},
+                                {"type": "motor_commands", "commands": motor_commands},
+                                {"type": "evaluation", "expected_fitness_gain": fitness_change}
+                            ]
+                            
+                            strategy_id = await self.memory_manager.create_or_update_strategy(
+                                worm_id=worm_id,
+                                name=strategy_name,
+                                description=strategy_description,
+                                trigger_conditions=trigger_conditions,
+                                action_sequence=action_sequence,
+                                context={
+                                    "fitness_before": fitness_before,
+                                    "energy_before": energy_before,
+                                    "location": location,
+                                    "outcome": outcome
+                                },
+                                tags=[goal, strategy, "auto_generated", "successful"]
+                            )
+                            
+                            memory_status += f", Strategy {strategy_id[:8]} created"
+                            
+                        except Exception as strategy_error:
+                            logger.warning(f"Failed to create strategy: {strategy_error}")
+                    
+                except Exception as memory_error:
+                    logger.warning(f"Failed to record experience in memory: {memory_error}")
+                    memory_status = "Memory recording failed"
+            else:
+                logger.debug("Memory manager not available, skipping experience recording")
             
             # Update learning metrics
             success_rate = self.successful_actions / self.decision_count if self.decision_count > 0 else 0
             
+            # 🧠 Memory-Enhanced Learning Message
+            memory_insights = state["decision_context"].get("memory_insights", [])
+            memory_confidence = state["decision_context"].get("memory_confidence", 0.5)
+            
             learning_msg = AIMessage(
-                content=f"📚 LEARNING: {learning_outcome}, Success rate: {success_rate:.2f}"
+                content=f"📚 MEMORY LEARNING: {learning_outcome} | " + \
+                       f"Outcome: {outcome} | " + \
+                       f"Fitness: {fitness_change:+.3f} | " + \
+                       f"Success rate: {success_rate:.2f} | " + \
+                       f"Memory: {memory_status} | " + \
+                       f"Confidence: {memory_confidence:.2f} | " + \
+                       f"Insights: {', '.join(memory_insights) if memory_insights else 'none'}"
             )
             state["messages"].append(learning_msg)
             state["current_step"] = "learning_complete"
             state["workflow_active"] = False
             
+            # Store previous values for next iteration
+            state["previous_fitness"] = fitness_after
+            state["previous_energy"] = energy_after
+            
             return state
             
         except Exception as e:
-            state["processing_errors"].append(f"Learning error: {e}")
+            state["processing_errors"].append(f"Memory-learning error: {e}")
+            
+            # Fallback to basic learning
+            fitness_change = state["fitness_score"] - state.get("previous_fitness", state["fitness_score"])
+            if fitness_change > 0:
+                self.successful_actions += 1
+                learning_outcome = "basic_positive"
+            else:
+                learning_outcome = "basic_negative"
+            
+            success_rate = self.successful_actions / self.decision_count if self.decision_count > 0 else 0
+            
+            fallback_msg = AIMessage(
+                content=f"📚 BASIC LEARNING: {learning_outcome}, Success rate: {success_rate:.2f}"
+            )
+            state["messages"].append(fallback_msg)
+            state["current_step"] = "learning_complete"
+            state["workflow_active"] = False
+            
             return state
     
     def _convert_to_langgraph_state(self, worm_state: WormState) -> LangGraphWormState:

@@ -94,6 +94,9 @@ class WormState(TypedDict):
     step_count: int
     simulation_id: str
     
+    # Memory system statistics
+    memory_stats: Optional[Dict[str, Any]]
+    
     # Status flags
     is_alive: bool
     is_feeding: bool
@@ -146,14 +149,14 @@ def create_initial_state(simulation_id: str) -> WormState:
             worm_position={"x": 0.0, "y": 0.0, "z": 0.0, "orientation": 0.0}
         ),
         decision_context=DecisionContext(
-            current_goal=None,
-            goal_priority=0.0,
+            current_goal="explore_environment",  # Default goal instead of None
+            goal_priority=0.5,
             goal_progress=0.0,
-            alternative_goals=[],
-            decision_confidence=0.0,
+            alternative_goals=["find_food", "avoid_obstacles", "maintain_health"],
+            decision_confidence=0.5,  # Neutral confidence
             last_decision_time=0.0,
-            current_decision=None,
-            decision_rationale=None
+            current_decision="initialize_behavior",  # Default decision instead of None
+            decision_rationale="Starting simulation with basic exploration behavior"
         ),
         learning_state=LearningState(
             recent_rewards=[],
@@ -166,6 +169,7 @@ def create_initial_state(simulation_id: str) -> WormState:
         simulation_time=0.0,
         step_count=0,
         simulation_id=simulation_id,
+        memory_stats=None,  # Will be populated when memory system is available
         is_alive=True,
         is_feeding=False,
         is_moving=False,

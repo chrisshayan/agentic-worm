@@ -39,7 +39,7 @@ class DashboardServer:
     - Interactive controls for goals and parameters
     """
     
-    def __init__(self, port: int = 8888, host: str = "localhost"):
+    def __init__(self, port: int = 8000, host: str = "0.0.0.0"):
         """
         Initialize the dashboard server.
         
@@ -85,6 +85,7 @@ class DashboardServer:
         self.app.post("/api/goal")(self.set_goal)
         self.app.get("/api/metrics")(self.get_metrics)
         self.app.get("/api/status")(self.get_system_status)
+        self.app.get("/health")(self.health_check)
     
     async def get_dashboard(self) -> HTMLResponse:
         """Serve the main dashboard HTML page."""
@@ -170,6 +171,10 @@ class DashboardServer:
                 status["ai_workflow_active"] = self.worm_system.agentic_workflow is not None
         
         return status
+    
+    async def health_check(self) -> Dict[str, str]:
+        """Health check endpoint for Docker."""
+        return {"status": "healthy", "service": "agentic-worm-dashboard"}
     
     def connect_worm_system(self, worm_system: AgenticWormSystem) -> None:
         """Connect a worm system to the dashboard for visualization."""
@@ -280,7 +285,17 @@ class DashboardServer:
             "learning_metrics": {
                 "recent_rewards": state["learning_state"]["recent_rewards"][-10:],  # Last 10 rewards
                 "behavior_success_rates": state["learning_state"]["behavior_success_rates"]
-            }
+            },
+            "memory_stats": state.get("memory_stats", {
+                "episodic_count": 0,
+                "spatial_count": 0,
+                "semantic_count": 0,
+                "strategies_count": 0,
+                "memory_confidence": 0.5,
+                "success_rate": 0.0,
+                "locations_visited": 0,
+                "insights": ["memory_system_initializing"]
+            })
         }
     
     def _generate_dashboard_html(self) -> str:
@@ -472,6 +487,123 @@ class DashboardServer:
             box-shadow: 0 4px 8px rgba(0,0,0,0.2);
         }
         
+        /* Memory System Styles */
+        .memory-widget {
+            background: linear-gradient(135deg, #7c2d12, #b91c1c);
+            border: 2px solid #dc2626;
+        }
+
+        .memory-stats-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        .memory-stat {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 8px;
+            border-radius: 6px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .memory-label {
+            font-size: 0.85em;
+            color: #fca5a5;
+        }
+
+        .memory-value {
+            font-weight: bold;
+            color: #fef2f2;
+            font-size: 1.1em;
+        }
+
+        .memory-metrics {
+            margin-bottom: 15px;
+        }
+
+        .memory-metric {
+            margin-bottom: 8px;
+        }
+
+        .confidence-bar {
+            width: 100%;
+            height: 6px;
+            background: rgba(0, 0, 0, 0.4);
+            border-radius: 3px;
+            margin-top: 4px;
+            overflow: hidden;
+        }
+
+        .confidence-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #ef4444, #22c55e);
+            transition: width 0.5s ease;
+            border-radius: 3px;
+        }
+
+        .memory-insights {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 10px;
+            border-radius: 6px;
+            margin-bottom: 15px;
+            max-height: 120px;
+            overflow-y: auto;
+        }
+
+        .memory-insights h4 {
+            margin: 0 0 8px 0;
+            font-size: 0.9em;
+            color: #fca5a5;
+        }
+
+        .insights-list {
+            font-size: 0.8em;
+        }
+
+        .insight-item {
+            margin: 4px 0;
+            padding: 4px 8px;
+            background: rgba(239, 68, 68, 0.1);
+            border-radius: 4px;
+            border-left: 3px solid #ef4444;
+        }
+
+        .memory-overlay-controls {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 6px;
+        }
+
+        .memory-btn {
+            background: linear-gradient(135deg, #dc2626, #b91c1c);
+            color: white;
+            border: none;
+            padding: 8px 6px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.8em;
+            transition: all 0.3s ease;
+            text-align: center;
+        }
+
+        .memory-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(220, 38, 38, 0.4);
+        }
+
+        .memory-btn.active {
+            background: linear-gradient(135deg, #22c55e, #16a34a);
+            box-shadow: 0 2px 8px rgba(34, 197, 94, 0.4);
+        }
+
+        .spatial-btn.active { background: linear-gradient(135deg, #3b82f6, #2563eb); }
+        .exp-btn.active { background: linear-gradient(135deg, #8b5cf6, #7c3aed); }
+        .strat-btn.active { background: linear-gradient(135deg, #f59e0b, #d97706); }
+        .know-btn.active { background: linear-gradient(135deg, #10b981, #059669); }
+        
         @media (max-width: 768px) {
             .dashboard-grid {
                 grid-template-columns: 1fr;
@@ -585,6 +717,61 @@ class DashboardServer:
                 </div>
             </div>
 
+            <!-- Memory System Widget -->
+            <div class="widget memory-widget">
+                <h3>🧠 Memory System</h3>
+                <div class="memory-stats-grid">
+                    <div class="memory-stat">
+                        <span class="memory-label">Episodic:</span>
+                        <span class="memory-value" id="episodic-count">0</span>
+                    </div>
+                    <div class="memory-stat">
+                        <span class="memory-label">Spatial:</span>
+                        <span class="memory-value" id="spatial-count">0</span>
+                    </div>
+                    <div class="memory-stat">
+                        <span class="memory-label">Semantic:</span>
+                        <span class="memory-value" id="semantic-count">0</span>
+                    </div>
+                    <div class="memory-stat">
+                        <span class="memory-label">Strategies:</span>
+                        <span class="memory-value" id="strategies-count">0</span>
+                    </div>
+                </div>
+                
+                <div class="memory-metrics">
+                    <div class="memory-metric">
+                        <span class="memory-label">Memory Confidence:</span>
+                        <span class="memory-value" id="memory-confidence">0.5</span>
+                        <div class="confidence-bar">
+                            <div class="confidence-fill" id="confidence-fill" style="width: 50%;"></div>
+                        </div>
+                    </div>
+                    <div class="memory-metric">
+                        <span class="memory-label">Success Rate:</span>
+                        <span class="memory-value" id="recent-success-rate">0.0%</span>
+                    </div>
+                    <div class="memory-metric">
+                        <span class="memory-label">Locations:</span>
+                        <span class="memory-value" id="locations-visited">0</span>
+                    </div>
+                </div>
+                
+                <div class="memory-insights">
+                    <h4>📋 Current Insights</h4>
+                    <div id="memory-insights-list" class="insights-list">
+                        <div class="insight-item">Initializing memory system...</div>
+                    </div>
+                </div>
+                
+                <div class="memory-overlay-controls">
+                    <button onclick="toggleMemoryOverlay('spatial')" class="memory-btn spatial-btn">🗺️ Spatial</button>
+                    <button onclick="toggleMemoryOverlay('experiences')" class="memory-btn exp-btn">📚 Experiences</button>
+                    <button onclick="toggleMemoryOverlay('strategies')" class="memory-btn strat-btn">🎯 Strategies</button>
+                    <button onclick="toggleMemoryOverlay('knowledge')" class="memory-btn know-btn">💡 Knowledge</button>
+                </div>
+            </div>
+
             <!-- Controls Widget -->
             <div class="widget">
                 <h3>🎮 Controls</h3>
@@ -695,6 +882,9 @@ class DashboardServer:
 
             // Update neural chart
             updateNeuralChart(state);
+            
+            // 🧠 Update Memory System
+            updateMemoryData({memory_stats: state.memory_stats});
         }
 
         // Setup neural activity chart
@@ -1149,6 +1339,51 @@ class DashboardServer:
             const btn = event.target;
             btn.textContent = wormPaused ? '▶️ Play' : '⏸️ Pause';
             logActivity(wormPaused ? '⏸️ Worm paused' : '▶️ Worm resumed');
+        }
+
+        // Memory Overlay System
+        let activeMemoryOverlay = null;
+
+        function toggleMemoryOverlay(overlayType) {
+            const button = document.querySelector(`.${overlayType.substring(0, 4)}-btn`);
+            
+            if (activeMemoryOverlay === overlayType) {
+                activeMemoryOverlay = null;
+                button.classList.remove('active');
+                logActivity(`🧠 ${overlayType} memory overlay disabled`);
+            } else {
+                document.querySelectorAll('.memory-btn').forEach(btn => btn.classList.remove('active'));
+                activeMemoryOverlay = overlayType;
+                button.classList.add('active');
+                logActivity(`🧠 ${overlayType} memory overlay enabled`);
+            }
+        }
+
+        function updateMemoryData(data) {
+            if (data.memory_stats) {
+                document.getElementById('episodic-count').textContent = data.memory_stats.episodic_count || 0;
+                document.getElementById('spatial-count').textContent = data.memory_stats.spatial_count || 0;
+                document.getElementById('semantic-count').textContent = data.memory_stats.semantic_count || 0;
+                document.getElementById('strategies-count').textContent = data.memory_stats.strategies_count || 0;
+                
+                const confidence = data.memory_stats.memory_confidence || 0.5;
+                document.getElementById('memory-confidence').textContent = confidence.toFixed(2);
+                document.getElementById('confidence-fill').style.width = `${confidence * 100}%`;
+                
+                document.getElementById('recent-success-rate').textContent = 
+                    `${((data.memory_stats.success_rate || 0) * 100).toFixed(1)}%`;
+                document.getElementById('locations-visited').textContent = 
+                    data.memory_stats.locations_visited || 0;
+                
+                const insightsList = document.getElementById('memory-insights-list');
+                if (data.memory_stats.insights && data.memory_stats.insights.length > 0) {
+                    insightsList.innerHTML = data.memory_stats.insights.map(insight => 
+                        `<div class="insight-item">${insight}</div>`
+                    ).join('');
+                } else {
+                    insightsList.innerHTML = '<div class="insight-item">No new insights...</div>';
+                }
+            }
         }
 
         // Initialize when page loads

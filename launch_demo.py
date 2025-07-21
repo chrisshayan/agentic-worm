@@ -337,32 +337,101 @@ async def run_neural_showcase_demo():
     except Exception as e:
         print(f"{Colors.RED}❌ Demo failed: {e}{Colors.NC}")
 
+async def test_arangodb_connection():
+    """Test ArangoDB connection before starting the system."""
+    print(f"{Colors.CYAN}🔍 Testing ArangoDB connection...{Colors.NC}")
+    
+    try:
+        # Import here to catch import errors
+        from arango import ArangoClient
+        
+        # Get connection details
+        arango_host = os.environ.get('ARANGO_HOST', 'localhost')
+        arango_port = int(os.environ.get('ARANGO_PORT', '8529'))
+        arango_database = os.environ.get('ARANGO_DATABASE', 'agentic_worm_memory')
+        
+        print(f"{Colors.CYAN}📡 Connecting to ArangoDB at {arango_host}:{arango_port}{Colors.NC}")
+        
+        # Create client and test connection
+        client = ArangoClient(hosts=f"http://{arango_host}:{arango_port}")
+        
+        # Connect to system database (no auth)
+        sys_db = client.db("_system")
+        version_info = sys_db.version()
+        print(f"{Colors.GREEN}✅ ArangoDB {version_info} connection successful{Colors.NC}")
+        
+        # Create database if not exists
+        databases = sys_db.databases()
+        if arango_database not in databases:
+            sys_db.create_database(arango_database)
+            print(f"{Colors.GREEN}✅ Created database: {arango_database}{Colors.NC}")
+        else:
+            print(f"{Colors.GREEN}✅ Database {arango_database} exists{Colors.NC}")
+        
+        # Test our database connection
+        our_db = client.db(arango_database)
+        db_info = our_db.properties()
+        print(f"{Colors.GREEN}✅ Connected to database: {db_info['name']}{Colors.NC}")
+        
+        return True
+        
+    except ImportError as e:
+        print(f"{Colors.RED}❌ ArangoDB import failed: {e}{Colors.NC}")
+        print(f"{Colors.YELLOW}💡 Install with: pip install python-arango{Colors.NC}")
+        return False
+    except Exception as e:
+        print(f"{Colors.RED}❌ ArangoDB connection failed: {e}{Colors.NC}")
+        print(f"{Colors.YELLOW}💡 Make sure ArangoDB is running and accessible{Colors.NC}")
+        return False
+
 async def run_dashboard_demo():
     """Run the live dashboard demo."""
     print(f"\n{Colors.GREEN}🌐 Starting Live Dashboard Demo...{Colors.NC}")
     print(f"{Colors.CYAN}📊 This will launch the full interactive web interface{Colors.NC}")
-    print(f"{Colors.YELLOW}💡 For best experience, use a modern browser{Colors.NC}")
+    print(f"{Colors.YELLOW}💡 Dashboard will be available at http://localhost:8000{Colors.NC}")
     
     try:
-        # Import and run the existing dashboard demo
-        import subprocess
-        import webbrowser
+        from src.agentic_worm.core.system import create_demo_system
         
-        print(f"{Colors.BLUE}🚀 Launching dashboard server...{Colors.NC}")
+        # Test ArangoDB connection first (especially in Docker)
+        arango_ok = await test_arangodb_connection()
+        if not arango_ok:
+            print(f"{Colors.YELLOW}⚠️ ArangoDB connection failed, continuing with fallback mode...{Colors.NC}")
         
-        # Try to run the dashboard demo script
-        result = subprocess.run([
-            sys.executable, "scripts/demo_dashboard.py"
-        ], capture_output=False)
+        print(f"{Colors.BLUE}🚀 Initializing Agentic Worm System...{Colors.NC}")
         
-        if result.returncode == 0:
-            print(f"\n{Colors.GREEN}✅ Dashboard demo completed!{Colors.NC}")
+        # Create and initialize the demo system
+        system = await create_demo_system(enable_visualization=True)
+        
+        print(f"{Colors.GREEN}✅ System initialized successfully!{Colors.NC}")
+        print(f"{Colors.BLUE}🌐 Dashboard starting at http://0.0.0.0:8000{Colors.NC}")
+        print(f"{Colors.YELLOW}🧠 Memory system enabled with ArangoDB storage{Colors.NC}")
+        print(f"{Colors.CYAN}📊 Real-time visualization active{Colors.NC}")
+        
+        # Start both dashboard and simulation
+        if hasattr(system, 'dashboard') and system.dashboard:
+            print(f"{Colors.GREEN}🚀 Starting dashboard server and simulation...{Colors.NC}")
+            
+            # Start simulation in background
+            import asyncio
+            simulation_task = asyncio.create_task(system.start_simulation())
+            
+            # Start dashboard server (this will run until interrupted)
+            try:
+                await system.dashboard.start_server()
+            except KeyboardInterrupt:
+                print(f"{Colors.CYAN}🛑 Shutting down...{Colors.NC}")
+                simulation_task.cancel()
+                await system.stop_simulation()
         else:
-            print(f"\n{Colors.YELLOW}⚠️ Dashboard demo ended{Colors.NC}")
+            print(f"{Colors.YELLOW}⚠️ Dashboard not available, starting simulation only{Colors.NC}")
+            await system.start_simulation()
         
     except Exception as e:
         print(f"{Colors.RED}❌ Dashboard demo failed: {e}{Colors.NC}")
-        print(f"{Colors.YELLOW}💡 Try running manually: python3 scripts/demo_dashboard.py{Colors.NC}")
+        print(f"{Colors.YELLOW}💡 Check that dependencies are installed: pip install -r requirements.txt{Colors.NC}")
+        import traceback
+        traceback.print_exc()
 
 async def run_openworm_test():
     """Run the OpenWorm integration test."""
@@ -545,8 +614,23 @@ async def main():
         print()  # Add spacing between demos
 
 if __name__ == "__main__":
+    import os
+    
     try:
-        asyncio.run(main())
+        # Auto-start dashboard if running in Docker or if choice is passed as argument
+        if os.environ.get('AUTO_START_DASHBOARD') == 'true' or (len(sys.argv) > 1 and sys.argv[1] == '5'):
+            print("🐳 Docker mode detected - Starting Live Dashboard Demo automatically...")
+            print("🌐 Dashboard will be available at http://localhost:8000")
+            
+            # Add delay for Docker startup to let ArangoDB initialize
+            if os.environ.get('AUTO_START_DASHBOARD') == 'true':
+                print("⏳ Waiting for ArangoDB to initialize...")
+                import time
+                time.sleep(10)  # Give ArangoDB time to start
+                
+            asyncio.run(run_dashboard_demo())
+        else:
+            asyncio.run(main())
     except KeyboardInterrupt:
         print(f"\n{Colors.CYAN}👋 Thanks for trying Agentic Worm!{Colors.NC}")
     except Exception as e:
